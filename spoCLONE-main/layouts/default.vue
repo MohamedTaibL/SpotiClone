@@ -34,13 +34,45 @@
         <div class="border-t border-gray-800/50 my-4 pt-4">
           <h3 class="text-xs uppercase text-gray-500 font-bold mb-4 tracking-wider">Your Playlists</h3>
           <div class="space-y-3 max-h-[30vh] overflow-y-auto pr-2 scrollbar-hide">
-            <a href="#" v-for="i in 6" :key="i" class="flex items-center space-x-3 text-gray-400 hover:text-white transition-colors py-1 group">
-              <div class="w-10 h-10 bg-gradient-to-br from-gray-700/80 to-gray-900/80 shadow rounded overflow-hidden flex-shrink-0"></div>
-              <div>
-                <p class="text-sm font-medium group-hover:text-green-400 transition-colors">Playlist {{ i }}</p>
-                <p class="text-xs text-gray-500">14 tracks</p>
+            <!-- Loading State -->
+            <div v-if="isLoadingPlaylists" class="flex justify-center py-4">
+              <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-green-500"></div>
+            </div>
+
+            <!-- Error State -->
+            <div v-else-if="playlistError" class="text-sm text-red-400 px-2">
+              {{ playlistError }}
+            </div>
+
+            <!-- Empty State -->
+            <div v-else-if="userPlaylists.length === 0" class="text-sm text-gray-500 px-2">
+              No playlists found
+            </div>
+
+            <!-- Playlists List -->
+            <NuxtLink
+              v-else
+              v-for="playlist in userPlaylists"
+              :key="playlist.id"
+              :to="`/playlist/${playlist.id}`"
+              class="flex items-center space-x-3 text-gray-400 hover:text-white transition-colors py-1 group"
+            >
+              <div class="w-10 h-10 bg-gradient-to-br from-gray-700/80 to-gray-900/80 shadow rounded overflow-hidden flex-shrink-0">
+                <img
+                  v-if="playlist.images?.[0]?.url"
+                  :src="playlist.images[0].url"
+                  :alt="playlist.name"
+                  class="w-full h-full object-cover"
+                />
+                <div v-else class="w-full h-full flex items-center justify-center">
+                  <span class="text-lg text-gray-500">{{ playlist.name[0] }}</span>
+                </div>
               </div>
-            </a>
+              <div class="min-w-0">
+                <p class="text-sm font-medium truncate group-hover:text-green-400 transition-colors">{{ playlist.name }}</p>
+                <p class="text-xs text-gray-500">{{ playlist.tracks?.total || 0 }} tracks</p>
+              </div>
+            </NuxtLink>
           </div>
         </div>
       </nav>
@@ -141,10 +173,11 @@
 </template>
 
 <script setup>
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { useAuth } from '~/composables/useAuth.js'
 import { useSpotifyPlayback } from '~/composables/useSpotifyPlayback.js'
 
-const { isAuthenticated, logout } = useAuth()
+const { isAuthenticated, logout, accessToken, refreshAccessToken } = useAuth()
 const { 
   isPlaying, 
   currentTrack, 
@@ -154,6 +187,80 @@ const {
   previousTrack, 
   setVolume 
 } = useSpotifyPlayback()
+
+// Playlists state
+const userPlaylists = ref([])
+const isLoadingPlaylists = ref(false)
+const playlistError = ref('')
+let playlistFetchTimeout = null
+
+// Fetch user's playlists with stable retry
+const fetchUserPlaylists = async () => {
+  if (!accessToken.value) return
+  
+  // Clear any pending fetches
+  if (playlistFetchTimeout) {
+    clearTimeout(playlistFetchTimeout)
+  }
+  
+  isLoadingPlaylists.value = true
+  playlistError.value = ''
+  
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/playlists', {
+      headers: {
+        'Authorization': `Bearer ${accessToken.value}`
+      }
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        // On 401, try to refresh token and retry once
+        await refreshAccessToken()
+        // Add a small delay before retrying
+        playlistFetchTimeout = setTimeout(() => {
+          fetchUserPlaylists()
+        }, 1000)
+        return
+      }
+      throw new Error('Failed to fetch playlists')
+    }
+
+    const data = await response.json()
+    // Only update if we got valid data
+    if (data && Array.isArray(data.items)) {
+      userPlaylists.value = data.items
+    }
+  } catch (err) {
+    console.error('Error fetching playlists:', err)
+    playlistError.value = 'Failed to load playlists'
+    // Don't clear existing playlists on error
+  } finally {
+    isLoadingPlaylists.value = false
+  }
+}
+
+// Watch for authentication changes
+watch(accessToken, (newToken, oldToken) => {
+  // Only fetch if we have a new valid token that's different from the old one
+  if (newToken && newToken !== oldToken) {
+    fetchUserPlaylists()
+  } else if (!newToken) {
+    userPlaylists.value = []
+  }
+}, { immediate: true })
+
+onMounted(() => {
+  if (accessToken.value) {
+    fetchUserPlaylists()
+  }
+})
+
+onUnmounted(() => {
+  if (playlistFetchTimeout) {
+    clearTimeout(playlistFetchTimeout)
+  }
+})
 </script>
 
 <style>

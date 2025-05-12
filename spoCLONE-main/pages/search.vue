@@ -70,20 +70,53 @@
         <h2 class="text-2xl font-bold mb-6">Tracks</h2>
         <div class="space-y-4">
           <div v-for="track in displayedTracks" :key="track?.id" 
-            class="flex items-center space-x-4 p-4 rounded-lg hover:bg-gray-800 transition-colors cursor-pointer"
-            @click="playTrack(track?.uri)"
+            class="flex items-center space-x-4 p-4 rounded-lg hover:bg-gray-800/50 transition-all duration-300 group relative"
           >
-            <img 
-              v-if="track?.album?.images?.[0]?.url" 
-              :src="track.album.images[0].url" 
-              :alt="track?.name"
-              class="w-12 h-12 rounded"
-            />
-            <div class="flex-1">
-              <p class="font-medium">{{ track?.name }}</p>
-              <p class="text-sm text-gray-400">{{ track?.artists?.map(artist => artist?.name).filter(Boolean).join(', ') }}</p>
+            <div class="flex-shrink-0 relative">
+              <img 
+                v-if="track?.album?.images?.[0]?.url" 
+                :src="track.album.images[0].url" 
+                :alt="track?.name"
+                class="w-12 h-12 rounded shadow-md"
+              />
+              <div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity rounded flex items-center justify-center">
+                <button 
+                  @click.stop="playTrack(track?.uri)"
+                  class="text-white hover:scale-110 transition-transform"
+                >
+                  <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                    <path d="M8 5v14l11-7z"/>
+                  </svg>
+                </button>
+              </div>
             </div>
-            <span class="text-gray-400">{{ formatDuration(track?.duration_ms || 0) }}</span>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium truncate">{{ track?.name }}</p>
+              <p class="text-sm text-gray-400 truncate">{{ track?.artists?.map(artist => artist?.name).filter(Boolean).join(', ') }}</p>
+            </div>
+            <div class="flex items-center space-x-3">
+              <button 
+                @click.stop="toggleLike(track.id)"
+                class="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full"
+                :class="{ 'text-green-500 hover:text-green-400': trackLikeStatus[track.id] }"
+              >
+                <svg v-if="trackLikeStatus[track.id]" class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/>
+                </svg>
+                <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
+                </svg>
+              </button>
+              <button 
+                @click.stop="showAddToPlaylistModal(track)"
+                class="text-gray-400 hover:text-white transition-colors p-2 hover:bg-white/5 rounded-full"
+              >
+                <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/>
+                </svg>
+              </button>
+              <span class="text-gray-400 text-sm">{{ formatDuration(track?.duration_ms || 0) }}</span>
+            </div>
           </div>
         </div>
         <button 
@@ -192,6 +225,51 @@
         No results found for "{{ searchQuery }}"
       </div>
     </div>
+
+    <!-- Add to Playlist Modal -->
+    <div v-if="showPlaylistModal" class="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+      <div class="bg-gray-900 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold">Add to Playlist</h3>
+          <button @click="closePlaylistModal" class="text-gray-400 hover:text-white">
+            <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/>
+            </svg>
+          </button>
+        </div>
+        
+        <div v-if="isLoadingPlaylists" class="flex justify-center py-8">
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-green-500"></div>
+        </div>
+        
+        <div v-else-if="userPlaylists.length === 0" class="text-center py-8 text-gray-400">
+          No playlists found. Create a playlist first.
+        </div>
+        
+        <div v-else class="space-y-2 max-h-96 overflow-y-auto pr-2">
+          <button
+            v-for="playlist in userPlaylists"
+            :key="playlist.id"
+            @click="addToPlaylist(playlist.id)"
+            class="w-full flex items-center space-x-3 p-3 rounded-lg hover:bg-white/5 transition-colors text-left"
+          >
+            <img
+              v-if="playlist.images?.[0]?.url"
+              :src="playlist.images[0].url"
+              :alt="playlist.name"
+              class="w-12 h-12 rounded shadow-md"
+            />
+            <div v-else class="w-12 h-12 bg-gray-800 rounded shadow-md flex items-center justify-center">
+              <span class="text-xl text-gray-500">{{ playlist.name[0] }}</span>
+            </div>
+            <div class="flex-1 min-w-0">
+              <p class="font-medium truncate">{{ playlist.name }}</p>
+              <p class="text-sm text-gray-400 truncate">{{ playlist.tracks?.total || 0 }} tracks</p>
+            </div>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -200,6 +278,7 @@ import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuth } from '~/composables/useAuth.js'
 import { useSpotifyPlayback } from '~/composables/useSpotifyPlayback.js'
+import { useSpotifyData } from '~/composables/useSpotifyData'
 
 /**
  * @typedef {Object} SpotifyImage
@@ -252,6 +331,7 @@ import { useSpotifyPlayback } from '~/composables/useSpotifyPlayback.js'
 const router = useRouter()
 const { accessToken, refreshAccessToken } = useAuth()
 const { playTrack: playSpotifyTrack } = useSpotifyPlayback()
+const { checkIfTrackIsLiked, toggleLikeTrack, addTrackToPlaylist } = useSpotifyData()
 
 const searchQuery = ref('')
 const isLoading = ref(false)
@@ -268,6 +348,12 @@ const displayedArtists = ref([])
 const displayedAlbums = ref([])
 const displayedPlaylists = ref([])
 const displayedUsers = ref([])
+
+const trackLikeStatus = ref({})
+const showPlaylistModal = ref(false)
+const selectedTrack = ref(null)
+const userPlaylists = ref([])
+const isLoadingPlaylists = ref(false)
 
 // Search for tracks, artists, albums, and playlists
 const handleSearch = async () => {
@@ -319,6 +405,9 @@ const handleSearch = async () => {
 
     // Update displayed items
     updateDisplayedItems()
+
+    // After updating results
+    await checkTracksLikeStatus(displayedTracks.value)
   } catch (error) {
     console.error('Erreur de recherche:', error)
     resetResults()
@@ -349,9 +438,10 @@ const updateDisplayedItems = () => {
 }
 
 // Load more functions
-const loadMoreTracks = () => {
+const loadMoreTracks = async () => {
   const currentLength = displayedTracks.value.length
   displayedTracks.value = tracks.value.slice(0, currentLength + DISPLAY_LIMIT)
+  await checkTracksLikeStatus(displayedTracks.value.slice(currentLength))
 }
 
 const loadMoreArtists = () => {
@@ -398,8 +488,90 @@ const formatDuration = (ms) => {
   return `${minutes}:${seconds.toString().padStart(2, '0')}`
 }
 
+// Check like status for displayed tracks
+const checkTracksLikeStatus = async (tracks) => {
+  for (const track of tracks) {
+    if (track?.id && !trackLikeStatus.value.hasOwnProperty(track.id)) {
+      trackLikeStatus.value[track.id] = await checkIfTrackIsLiked(track.id)
+    }
+  }
+}
+
+// Toggle like status
+const toggleLike = async (trackId) => {
+  const currentStatus = trackLikeStatus.value[trackId] || false
+  const success = await toggleLikeTrack(trackId, currentStatus)
+  if (success) {
+    trackLikeStatus.value[trackId] = !currentStatus
+  }
+}
+
+// Fetch user's playlists
+const fetchUserPlaylists = async () => {
+  if (!accessToken.value) return
+  
+  isLoadingPlaylists.value = true
+  try {
+    const response = await fetch('https://api.spotify.com/v1/me/playlists', {
+      headers: {
+        'Authorization': `Bearer ${accessToken.value}`
+      }
+    })
+
+    if (!response.ok) {
+      if (response.status === 401) {
+        await refreshAccessToken()
+        return fetchUserPlaylists()
+      }
+      throw new Error('Failed to fetch playlists')
+    }
+
+    const data = await response.json()
+    userPlaylists.value = data.items
+  } catch (err) {
+    console.error('Error fetching playlists:', err)
+  } finally {
+    isLoadingPlaylists.value = false
+  }
+}
+
+// Show add to playlist modal
+const showAddToPlaylistModal = async (track) => {
+  selectedTrack.value = track
+  showPlaylistModal.value = true
+  await fetchUserPlaylists()
+}
+
+// Close playlist modal
+const closePlaylistModal = () => {
+  showPlaylistModal.value = false
+  selectedTrack.value = null
+}
+
+// Add track to playlist
+const addToPlaylist = async (playlistId) => {
+  if (!selectedTrack.value?.uri) return
+  
+  const success = await addTrackToPlaylist(playlistId, selectedTrack.value.uri)
+  if (success) {
+    closePlaylistModal()
+    // Show success message or notification here if desired
+  }
+}
+
 // Clear any existing search results
 onMounted(() => {
   resetResults()
 })
-</script> 
+</script>
+
+<style scoped>
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+</style> 
